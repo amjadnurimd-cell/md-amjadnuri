@@ -1,0 +1,320 @@
+
+import React, { useState, useCallback, useRef } from 'react';
+import Cropper from 'react-easy-crop';
+import { VideoContent } from '../types';
+import { generateAIImage, checkAndRequestApiKey } from '../services/geminiService';
+
+interface ProfileProps {
+  videos: VideoContent[];
+  onOpenSettings: () => void;
+}
+
+const DEFAULT_BANNER = "https://images.unsplash.com/photo-1614850523296-d8c1af93d400?auto=format&fit=crop&q=80&w=1000";
+const DEFAULT_AVATAR = "https://picsum.photos/seed/me/200/200";
+
+const Profile: React.FC<ProfileProps> = ({ videos, onOpenSettings }) => {
+  const [isFollowing, setIsFollowing] = useState(false);
+  const [bannerUrl, setBannerUrl] = useState(DEFAULT_BANNER);
+  const [avatarUrl, setAvatarUrl] = useState(DEFAULT_AVATAR);
+  const [bannerPrompt, setBannerPrompt] = useState("");
+  const [isGeneratingBanner, setIsGeneratingBanner] = useState(false);
+  const [showPromptInput, setShowPromptInput] = useState(false);
+
+  // Cropping State
+  const [imageToCrop, setImageToCrop] = useState<string | null>(null);
+  const [crop, setCrop] = useState({ x: 0, y: 0 });
+  const [zoom, setZoom] = useState(1);
+  const [croppedAreaPixels, setCroppedAreaPixels] = useState<any>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const myVideos = videos.filter(v => v.user.id === 'ai_creator' || v.user.id === 'u1');
+
+  const handleGenerateBanner = async () => {
+    if (!bannerPrompt.trim()) return;
+    
+    setIsGeneratingBanner(true);
+    try {
+      await checkAndRequestApiKey();
+      const newBanner = await generateAIImage(bannerPrompt, "1K", "16:9");
+      if (newBanner) {
+        setBannerUrl(newBanner);
+        setShowPromptInput(false);
+        setBannerPrompt("");
+      } else {
+        alert("Failed to generate banner. Please try a different prompt.");
+      }
+    } catch (error) {
+      console.error("Error generating banner:", error);
+      alert("An error occurred while generating your banner.");
+    } finally {
+      setIsGeneratingBanner(false);
+    }
+  };
+
+  const onFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const file = e.target.files[0];
+      const reader = new FileReader();
+      reader.addEventListener('load', () => {
+        setImageToCrop(reader.result as string);
+      });
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const onCropComplete = useCallback((_croppedArea: any, croppedAreaPixels: any) => {
+    setCroppedAreaPixels(croppedAreaPixels);
+  }, []);
+
+  const createImage = (url: string): Promise<HTMLImageElement> =>
+    new Promise((resolve, reject) => {
+      const image = new Image();
+      image.addEventListener('load', () => resolve(image));
+      image.addEventListener('error', (error) => reject(error));
+      image.setAttribute('crossOrigin', 'anonymous');
+      image.src = url;
+    });
+
+  const getCroppedImg = async (imageSrc: string, pixelCrop: any) => {
+    const image = await createImage(imageSrc);
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+
+    if (!ctx) return null;
+
+    canvas.width = pixelCrop.width;
+    canvas.height = pixelCrop.height;
+
+    ctx.drawImage(
+      image,
+      pixelCrop.x,
+      pixelCrop.y,
+      pixelCrop.width,
+      pixelCrop.height,
+      0,
+      0,
+      pixelCrop.width,
+      pixelCrop.height
+    );
+
+    return canvas.toDataURL('image/jpeg');
+  };
+
+  const showCroppedImage = async () => {
+    try {
+      if (imageToCrop && croppedAreaPixels) {
+        const croppedImage = await getCroppedImg(imageToCrop, croppedAreaPixels);
+        if (croppedImage) {
+          setAvatarUrl(croppedImage);
+          setImageToCrop(null);
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  return (
+    <div className="flex-1 overflow-y-auto bg-black text-white no-scrollbar pb-20">
+      {/* Crop Modal */}
+      {imageToCrop && (
+        <div className="fixed inset-0 z-[100] bg-black flex flex-col items-center justify-center p-4">
+          <div className="relative w-full h-[60vh] md:w-[400px] md:h-[400px] bg-zinc-900 rounded-3xl overflow-hidden shadow-2xl">
+            <Cropper
+              image={imageToCrop}
+              crop={crop}
+              zoom={zoom}
+              aspect={1}
+              onCropChange={setCrop}
+              onCropComplete={onCropComplete}
+              onZoomChange={setZoom}
+              cropShape="round"
+              showGrid={false}
+            />
+          </div>
+          <div className="w-full max-w-sm mt-8 space-y-6">
+            <div className="flex flex-col space-y-2">
+              <label className="text-xs font-bold text-zinc-500 uppercase text-center">Zoom</label>
+              <input
+                type="range"
+                value={zoom}
+                min={1}
+                max={3}
+                step={0.1}
+                aria-labelledby="Zoom"
+                onChange={(e) => setZoom(Number(e.target.value))}
+                className="w-full h-1 bg-zinc-800 rounded-full appearance-none accent-[#FE2C55]"
+              />
+            </div>
+            <div className="flex space-x-3">
+              <button 
+                onClick={() => setImageToCrop(null)}
+                className="flex-1 py-4 rounded-2xl bg-zinc-800 font-bold hover:bg-zinc-700 transition-colors"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={showCroppedImage}
+                className="flex-1 py-4 rounded-2xl bg-[#FE2C55] font-bold hover:bg-[#ef2950] transition-colors"
+              >
+                Apply
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Banner Section */}
+      <div className="relative w-full h-48 md:h-64 overflow-hidden group">
+        {isGeneratingBanner ? (
+          <div className="absolute inset-0 z-10 bg-black/60 flex flex-col items-center justify-center backdrop-blur-sm">
+            <div className="w-8 h-8 border-2 border-t-[#FE2C55] border-white/20 rounded-full animate-spin mb-2"></div>
+            <span className="text-xs font-medium text-white">Gemini is painting your banner...</span>
+          </div>
+        ) : null}
+        
+        <img 
+          src={bannerUrl} 
+          alt="Profile Banner" 
+          className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+        />
+        
+        <div className="absolute inset-0 bg-gradient-to-b from-transparent to-black/60" />
+        
+        {/* Profile Controls Header */}
+        <div className="absolute top-8 left-0 right-0 flex justify-between px-6 z-20">
+           <h2 className="text-lg font-black tracking-tight drop-shadow-lg">TikTok</h2>
+           <button 
+            onClick={onOpenSettings}
+            className="w-10 h-10 bg-black/20 backdrop-blur-md rounded-full flex items-center justify-center hover:bg-black/40 transition-all border border-white/10"
+           >
+             <i className="fa-solid fa-bars text-white"></i>
+           </button>
+        </div>
+
+        <button 
+          onClick={() => setShowPromptInput(!showPromptInput)}
+          className="absolute bottom-4 right-4 bg-black/40 hover:bg-black/60 backdrop-blur-md text-white w-10 h-10 rounded-full flex items-center justify-center transition-all z-20 border border-white/10"
+          title="Customize Banner with AI"
+        >
+          <i className={`fa-solid ${showPromptInput ? 'fa-xmark' : 'fa-wand-magic-sparkles'}`}></i>
+        </button>
+
+        {showPromptInput && (
+          <div className="absolute top-16 right-4 left-4 md:left-auto md:w-80 bg-zinc-900/95 backdrop-blur-xl border border-zinc-800 p-4 rounded-2xl shadow-2xl z-30 animate-in fade-in slide-in-from-top-2">
+            <h3 className="text-sm font-bold mb-3 flex items-center">
+              <i className="fa-solid fa-sparkles text-[#FE2C55] mr-2"></i>
+              AI Banner Designer
+            </h3>
+            <textarea
+              value={bannerPrompt}
+              onChange={(e) => setBannerPrompt(e.target.value)}
+              placeholder="e.g. A dreamy neon sunset over a futuristic city skyline..."
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-xl p-3 text-xs text-white focus:outline-none focus:ring-1 focus:ring-[#FE2C55] h-20 resize-none mb-3"
+            />
+            <button
+              onClick={handleGenerateBanner}
+              disabled={isGeneratingBanner || !bannerPrompt.trim()}
+              className="w-full py-2 bg-[#FE2C55] hover:bg-[#ef2950] disabled:bg-zinc-700 disabled:text-zinc-500 rounded-lg text-xs font-bold transition-colors"
+            >
+              {isGeneratingBanner ? 'Generating...' : 'Generate with Gemini'}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Profile Header */}
+      <div className="flex flex-col items-center -mt-12 pb-8 px-6 relative z-10">
+        <div className="relative mb-4 group/avatar cursor-pointer" onClick={() => fileInputRef.current?.click()}>
+          <div className="w-24 h-24 rounded-full border-4 border-black bg-zinc-900 overflow-hidden relative">
+            <img 
+              src={avatarUrl} 
+              alt="My Profile" 
+              className="w-full h-full object-cover"
+            />
+            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/avatar:opacity-100 flex items-center justify-center transition-opacity duration-200">
+              <i className="fa-solid fa-camera text-white text-xl"></i>
+            </div>
+          </div>
+          <div className="absolute bottom-0 right-0 bg-[#FE2C55] rounded-full w-7 h-7 flex items-center justify-center border-2 border-black">
+            <i className="fa-solid fa-plus text-white text-[12px]"></i>
+          </div>
+          <input 
+            type="file" 
+            ref={fileInputRef} 
+            className="hidden" 
+            accept="image/*" 
+            onChange={onFileChange}
+          />
+        </div>
+        <h2 className="text-xl font-bold">@gemini_user</h2>
+        <p className="text-sm text-zinc-400 mt-1 italic text-center">Imagining the world one pixel at a time.</p>
+        
+        {/* Statistics Section - Enhanced and Visually Distinct */}
+        <div className="flex justify-center items-center space-x-10 mt-8 py-2 w-full">
+          <div className="flex flex-col items-center group cursor-pointer transition-transform active:scale-95">
+            <span className="font-black text-xl tracking-tight text-white group-hover:text-zinc-300">124</span>
+            <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-[0.15em] mt-1">Following</span>
+          </div>
+          <div className="flex flex-col items-center group cursor-pointer transition-transform active:scale-95">
+            <span className="font-black text-xl tracking-tight text-white group-hover:text-zinc-300">45.2K</span>
+            <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-[0.15em] mt-1">Followers</span>
+          </div>
+          <div className="flex flex-col items-center group cursor-pointer transition-transform active:scale-95">
+            <span className="font-black text-xl tracking-tight text-white group-hover:text-zinc-300">1.2M</span>
+            <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-[0.15em] mt-1">Likes</span>
+          </div>
+        </div>
+
+        <div className="flex space-x-2 mt-8 w-full max-w-sm">
+          <button 
+            onClick={() => setIsFollowing(!isFollowing)}
+            className={`flex-1 h-11 rounded-lg font-bold transition-all shadow-lg ${isFollowing ? 'bg-zinc-800 text-white' : 'bg-[#FE2C55] text-white hover:bg-[#ef2950]'}`}
+          >
+            {isFollowing ? 'Following' : 'Follow'}
+          </button>
+          <button className="w-11 h-11 bg-zinc-800 rounded-lg flex items-center justify-center hover:bg-zinc-700 transition-colors shadow-lg">
+            <i className="fa-solid fa-share"></i>
+          </button>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex border-b border-zinc-900 sticky top-0 bg-black/80 backdrop-blur-md z-20">
+        <div className="flex-1 py-3 text-center border-b-2 border-white">
+          <i className="fa-solid fa-table-cells text-xl"></i>
+        </div>
+        <div className="flex-1 py-3 text-center text-zinc-500">
+          <i className="fa-solid fa-lock text-xl"></i>
+        </div>
+        <div className="flex-1 py-3 text-center text-zinc-500">
+          <i className="fa-solid fa-heart text-xl"></i>
+        </div>
+      </div>
+
+      {/* Video Grid */}
+      <div className="grid grid-cols-3 gap-[1px] mt-[1px]">
+        {myVideos.map(video => (
+          <div key={video.id} className="aspect-[3/4] relative bg-zinc-900 group cursor-pointer overflow-hidden">
+            {video.url.includes('data:image') ? (
+               <img src={video.url} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110" alt="AI Generated" />
+            ) : (
+              <video src={video.url} className="w-full h-full object-cover" />
+            )}
+            <div className="absolute bottom-2 left-2 flex items-center space-x-1 text-[10px] font-bold text-white drop-shadow-lg">
+              <i className="fa-solid fa-play"></i>
+              <span>{(video.likes / 100).toFixed(1)}k</span>
+            </div>
+            {video.url.includes('data:image') && (
+              <div className="absolute top-2 right-2">
+                <i className="fa-solid fa-wand-magic-sparkles text-[10px] text-white/70"></i>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+export default Profile;

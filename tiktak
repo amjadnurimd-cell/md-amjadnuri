@@ -1,0 +1,164 @@
+
+import React, { useState, useRef, useEffect } from 'react';
+import VideoCard from './components/VideoCard';
+import BottomNav from './components/BottomNav';
+import TopNav from './components/TopNav';
+import CreateModal from './components/CreateModal';
+import Profile from './components/Profile';
+import SearchScreen from './components/SearchScreen';
+import SettingsScreen from './components/SettingsScreen';
+import InboxScreen from './components/InboxScreen';
+import FriendsScreen from './components/FriendsScreen';
+import SplashScreen from './components/SplashScreen';
+import { VideoContent } from './types';
+
+const INITIAL_VIDEOS: VideoContent[] = [
+  {
+    id: '1',
+    url: 'https://assets.mixkit.co/videos/preview/mixkit-girl-in-neon-lighting-in-the-city-at-night-21895-large.mp4',
+    user: {
+      id: 'u1',
+      username: 'neon_vibes',
+      avatar: 'https://picsum.photos/seed/u1/100/100',
+      isFollowing: false,
+    },
+    description: 'City nights in neon. #cyberpunk #tokyo #neon',
+    tags: ['cyberpunk', 'tokyo', 'neon'],
+    likes: 12400,
+    comments: 450,
+    shares: 1200,
+    musicName: 'original sound - neon_vibes',
+  },
+  {
+    id: '2',
+    url: 'https://assets.mixkit.co/videos/preview/mixkit-tree-with-yellow-leaves-low-angle-shot-1476-large.mp4',
+    user: {
+      id: 'u2',
+      username: 'nature_seeker',
+      avatar: 'https://picsum.photos/seed/u2/100/100',
+      isFollowing: true,
+    },
+    description: 'Autumn vibes are here! 🍂 #nature #autumn #peaceful',
+    tags: ['nature', 'autumn', 'peaceful'],
+    likes: 8500,
+    comments: 120,
+    shares: 300,
+    musicName: 'Nature Lo-Fi - Chill Beats',
+  },
+  {
+    id: '3',
+    url: 'https://assets.mixkit.co/videos/preview/mixkit-man-dancing-under-the-rain-4458-large.mp4',
+    user: {
+      id: 'u3',
+      username: 'dance_master',
+      avatar: 'https://picsum.photos/seed/u3/100/100',
+      isFollowing: false,
+    },
+    description: 'Rainy day groove. ☔️🕺 #dance #rain #vibes',
+    tags: ['dance', 'rain', 'vibes'],
+    likes: 45600,
+    comments: 2100,
+    shares: 5400,
+    musicName: 'Singing in the Rain - Remix',
+  }
+];
+
+const App: React.FC = () => {
+  const [videos, setVideos] = useState<VideoContent[]>(INITIAL_VIDEOS);
+  const [activeTab, setActiveTab] = useState<'for-you' | 'following'>('for-you');
+  const [view, setView] = useState<'home' | 'friends' | 'inbox' | 'profile' | 'search' | 'settings'>('home');
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isBooting, setIsBooting] = useState(true);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    // Simulate app boot sequence
+    const timer = setTimeout(() => {
+      setIsBooting(false);
+    }, 2500);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const handleAddNewVideo = (newVideo: VideoContent) => {
+    setVideos([newVideo, ...videos]);
+    setIsCreateModalOpen(false);
+    setView('home');
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
+  if (isBooting) {
+    return <SplashScreen />;
+  }
+
+  const renderContent = () => {
+    switch (view) {
+      case 'profile':
+        return <Profile videos={videos} onOpenSettings={() => setView('settings')} />;
+      case 'search':
+        return <SearchScreen />;
+      case 'friends':
+        return <FriendsScreen />;
+      case 'inbox':
+        return <InboxScreen />;
+      case 'settings':
+        return <SettingsScreen onBack={() => setView('profile')} />;
+      default:
+        const filteredVideos = activeTab === 'following' 
+          ? videos.filter(v => v.user.isFollowing)
+          : videos;
+
+        return (
+          <div ref={scrollContainerRef} className="video-container no-scrollbar flex-1">
+            {filteredVideos.length > 0 ? (
+              filteredVideos.map((video) => (
+                <VideoCard key={video.id} video={video} />
+              ))
+            ) : (
+              <div className="h-screen flex flex-col items-center justify-center text-zinc-500 p-10 text-center">
+                <i className="fa-solid fa-users text-4xl mb-4 opacity-20"></i>
+                <p>Follow some creators to see their content here!</p>
+                <button 
+                  onClick={() => setActiveTab('for-you')}
+                  className="mt-6 px-6 py-2 bg-white text-black font-bold rounded-full text-sm"
+                >
+                  Go to For You
+                </button>
+              </div>
+            )}
+          </div>
+        );
+    }
+  };
+
+  return (
+    <div className="relative h-screen w-screen bg-black overflow-hidden flex flex-col animate-in fade-in duration-500">
+      {view === 'home' && (
+        <TopNav 
+          activeTab={activeTab} 
+          setActiveTab={setActiveTab} 
+          onSearch={() => setView('search')} 
+        />
+      )}
+      
+      {renderContent()}
+
+      <BottomNav 
+        activeTab={view === 'settings' ? 'profile' : view} 
+        onTabChange={(t) => setView(t as any)}
+        onCreateClick={() => setIsCreateModalOpen(true)} 
+      />
+
+      {isCreateModalOpen && (
+        <CreateModal 
+          isOpen={isCreateModalOpen} 
+          onClose={() => setIsCreateModalOpen(false)}
+          onVideoCreated={handleAddNewVideo}
+        />
+      )}
+    </div>
+  );
+};
+
+export default App;
